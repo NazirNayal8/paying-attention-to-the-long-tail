@@ -1,0 +1,19 @@
+transformer_model: vit_base_patch16_224
+model_provider: timm
+pretrained: False
+num_classes: 10
+dataset: cifar10
+loss_function: cross_entropy
+optimizer: Adam
+learning_rate: 0.00001
+weight_decay: 0.00001
+class_names: ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
+data_root: '/media/nazirnayal/DATA/datasets/cifar10'
+imb_type: 'exp'
+imb_factor: 0.01
+random_seed: 0
+test_ratio: 0.8
+batch_size: 16
+num_workers: 15
+num_epochs: 60
+img_size: 224

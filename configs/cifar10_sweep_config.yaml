@@ -1,0 +1,14 @@
+program: hyper_opt.py
+project: attn_long_tail
+method: grid
+metric:
+  name : val_accuracy
+  goal : maximize
+
+parameters:
+  learning_rate:
+    values: [0.00001]
+  weight_decay:
+    values: [0.00001]
+  imb_factor:
+    values: [0.1, 0.01, 0.02]
