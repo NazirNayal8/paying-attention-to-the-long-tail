@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from models.vit import TimmViT
 from torch import Tensor
 from torchmetrics import Accuracy
-from torch.optim import Adam
+from torch.optim import Adam, SGD
 from data.cifar_imbalanced import IMBALANCECIFAR10, IMBALANCECIFAR100
 from torchvision import transforms
 from torch.utils.data import DataLoader
@@ -87,6 +87,8 @@ class Transformer(pl.LightningModule):
         """
         if self.hparams.optimizer == 'Adam':
             return Adam(self.parameters(), lr=self.hparams.learning_rate, weight_decay=self.hparams.weight_decay)
+        elif self.hparams.optimizer == 'SGD':
+            return SGD(self.parameters(), lr=self.hparams.learning_rate, )
         else:
             raise Exception(f"Unsupported Optimizer type: {self.hparams.optimizer}")
 
@@ -96,7 +98,7 @@ class Transformer(pl.LightningModule):
         logits = self(x)
         loss = self.loss_func(logits, y)
 
-        self.log('loss', loss.item(), prog_bar=True, on_step=True, on_epoch=True)
+        self.log('train/loss', loss.item(), prog_bar=True, on_step=True, on_epoch=True)
 
         results = {
             'loss': loss,
@@ -133,16 +135,16 @@ class Transformer(pl.LightningModule):
                         continue
                     self.acc_per_class_train[c](y_pred_c, y_c)
 
-            self.log('train_accuracy', self.acc_train.compute())
+            self.log('train/accuracy', self.acc_train.compute())
             for c in range(self.hparams.num_classes):
                 if self.acc_per_class_train[c].mode:
-                    self.log(f'class_{c}_train_accuracy', self.acc_per_class_train[c].compute())
+                    self.log(f'train/class_{self.hparams.class_names[c]}-{c}_accuracy', self.acc_per_class_train[c].compute())
 
         y = torch.cat(ys)
         y_pred = torch.cat(y_preds)
 
         self.logger.experiment.log({
-            "confusion_matrix_training": wandb.plot.confusion_matrix(
+            "train/confusion_matrix": wandb.plot.confusion_matrix(
                 probs=None,
                 y_true=np.array(y.cpu().tolist()),
                 preds=np.array(y_pred.cpu().tolist()),
@@ -161,7 +163,7 @@ class Transformer(pl.LightningModule):
         if batch_idx == -1:
             return y_pred, y
 
-        self.log('val_loss', loss.item(), prog_bar=True, on_step=True, on_epoch=True)
+        self.log('val/loss', loss.item(), prog_bar=True, on_step=True, on_epoch=True)
 
         self.acc_valid(logits, y)
 
@@ -183,10 +185,10 @@ class Transformer(pl.LightningModule):
 
     def validation_epoch_end(self, val_step_outputs):
 
-        self.log('val_accuracy', self.acc_valid.compute())
+        self.log('val/accuracy', self.acc_valid.compute())
         for c in range(self.hparams.num_classes):
             if self.acc_per_class_valid[c].mode:
-                self.log(f'class_{c}_val_accuracy', self.acc_per_class_valid[c].compute())
+                self.log(f'val/class_{self.hparams.class_names[c]}-{c}_accuracy', self.acc_per_class_valid[c].compute())
         steps = len(val_step_outputs)
 
         y = [None] * steps
@@ -200,7 +202,7 @@ class Transformer(pl.LightningModule):
         y_pred = torch.cat(y_pred).cpu().tolist()
 
         self.logger.experiment.log({
-            "confusion_matrix_validation": wandb.plot.confusion_matrix(
+            "val/confusion_matrix": wandb.plot.confusion_matrix(
                 probs=None,
                 y_true=np.array(y), preds=np.array(y_pred),
                 class_names=self.hparams.class_names)
@@ -226,22 +228,23 @@ class Transformer(pl.LightningModule):
 
     def test_epoch_end(self, outputs):
 
-        self.log('test_accuracy', self.acc_test.compute())
+        self.log('test/accuracy', self.acc_test.compute())
         per_class_accuracies = []
         for c in range(self.hparams.num_classes):
             if self.acc_per_class_test[c].mode:
                 acc = self.acc_per_class_test[c].compute()
                 per_class_accuracies.extend([acc.item()])
-                self.log(f'class_{c}_test_accuracy', acc)
+                self.log(f'test/class_{self.hparams.class_names[c]}-{c}_accuracy', acc)
         steps = len(outputs)
 
         plt.title('Per Class Accuracy')
         plt.xlabel('Classes Sorted by Frequency')
         plt.ylabel('Top-1 Accuracy')
         plt.plot(np.arange(self.hparams.num_classes), per_class_accuracies)
+        plt.grid()
 
         self.logger.experiment.log({
-            'per_class_test_accuracies': plt
+            'test/per_class_accuracies': plt
         })
 
         y = [None] * steps
@@ -256,7 +259,7 @@ class Transformer(pl.LightningModule):
 
         # plot confusion matrix in wandb style
         self.logger.experiment.log({
-            "confusion_matrix_test": wandb.plot.confusion_matrix(
+            "test/confusion_matrix": wandb.plot.confusion_matrix(
                 probs=None,
                 y_true=np.array(y), preds=np.array(y_pred),
                 class_names=self.hparams.class_names)
@@ -264,7 +267,7 @@ class Transformer(pl.LightningModule):
 
         # plot confusion matrix in sklearn style
         self.logger.experiment.log({
-            'confusion_matrix_sklearn_test': wandb.sklearn.plot_confusion_matrix(y, y_pred, self.hparams.class_names)
+            'test/confusion_matrix_sklearn': wandb.sklearn.plot_confusion_matrix(y, y_pred, self.hparams.class_names)
         })
 
     def setup(self, stage):

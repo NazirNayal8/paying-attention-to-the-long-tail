@@ -11,7 +11,11 @@ def read_config(path):
     return config
 
 
-config = read_config('configs/cifar10_config_local.yaml')
+config = read_config('configs/cifar100_config_local.yaml')
+
+if isinstance(config['class_names'], str):
+    class_names = read_config(config['class_names'])
+    config['class_names'] = list(class_names.values())
 
 pl.seed_everything(config['random_seed'])
 
@@ -19,9 +23,15 @@ wandb.init(config=config)
 
 config['learning_rate'] = wandb.config.learning_rate
 config['weight_decay'] = wandb.config.weight_decay
+config['imb_factor'] = wandb.config.imb_factor
 
 model = Transformer(config)
-wandb_logger = WandbLogger(name=f'hyper_opt_{wandb.config.learning_rate}', job_type='train', log_model=True)
+wandb_logger = WandbLogger(
+    name=f'hyper_opt_{wandb.config.learning_rate}',
+    project='attention_long_tail',
+    job_type='train',
+    log_model=True
+)
 
 trainer = pl.Trainer(
     max_epochs=wandb.config.num_epochs,

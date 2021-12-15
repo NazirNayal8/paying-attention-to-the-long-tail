@@ -2,13 +2,15 @@ program: hyper_opt.py
 project: attention_long_tail
 method: grid
 metric:
-  name : val_accuracy
+  name : val/accuracy
   goal : maximize
 
 parameters:
   learning_rate:
-    values: [0.00001]
+    values: [0.00005, 0.000001]
   weight_decay:
-    values: [0.00001]
+    values: [0.0001]
   imb_factor:
-    values: [0.1, 0.01, 0.02]
+    values: [0.1, 0.01]
+  optimizer:
+    values: ['Adam']

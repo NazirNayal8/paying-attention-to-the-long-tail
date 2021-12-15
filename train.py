@@ -3,6 +3,7 @@ import pytorch_lightning as pl
 import yaml
 from transformer_pl import Transformer
 from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 
 def read_config(path):
@@ -19,8 +20,16 @@ if isinstance(config['class_names'], str):
 
 pl.seed_everything(config['random_seed'])
 
+run_name = 'cifar10_rho_100'
+
 model = Transformer(config)
-wandb_logger = WandbLogger(name='cifar10_rho_100', job_type='train', log_model=True)
+wandb_logger = WandbLogger(name=run_name, project='attention_long_tail', job_type='train', log_model=True)
+checkpoint_callback = ModelCheckpoint(
+    dirpath='model_logs/',
+    monitor='val/loss',
+    mode='max',
+    filename=run_name + '-{epoch:02d}-val_loss{val/loss:.2f}'
+)
 
 trainer = pl.Trainer(
     max_epochs=config['num_epochs'],
@@ -31,6 +40,7 @@ trainer = pl.Trainer(
     logger=wandb_logger,
     log_every_n_steps=1,
     profiler='simple',
+    callbacks=[checkpoint_callback]
 )
 trainer.fit(model)
 trainer.test(model)
