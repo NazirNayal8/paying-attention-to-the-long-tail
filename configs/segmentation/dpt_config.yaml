@@ -1,0 +1,11 @@
+num_classes: 150
+features: 256
+use_bn: True
+backbone: vitb_rn50_384 # vitb_rn50_384 vitb16_384
+readout: project
+channels_last: False
+enable_attention_hooks: False
+loss_function: cross_entropy
+optimizer: Adam
+learning_rate:
+weight_decay:

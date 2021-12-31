@@ -6,17 +6,22 @@ import wandb
 import matplotlib.pyplot as plt
 from models.vit import TimmViT
 from torch import Tensor
-from torchmetrics import Accuracy
+from torchmetrics import Accuracy, Precision, Recall, F1, AveragePrecision
 from torch.optim import Adam, SGD
 from data.cifar_imbalanced import IMBALANCECIFAR10, IMBALANCECIFAR100
 from torchvision import transforms
 from torch.utils.data import DataLoader
+from metrics.classification import KShotAccuracy, KShotPrecision, KShotF1, KShotmAP
+from losses.focal_loss import focal_loss
+from losses.class_balanced_loss import ClassBalancedLoss
 
 
 class Transformer(pl.LightningModule):
 
     def __init__(self, config):
         super().__init__()
+
+        config = self.add_run_dependent_parameters(config)
 
         self.save_hyperparameters(config)
 
@@ -26,13 +31,43 @@ class Transformer(pl.LightningModule):
         self.loss_func = self.get_loss_function()
 
         # Metrics
+
+        # Accuracy
         self.acc_train = Accuracy()
         self.acc_valid = Accuracy()
-        self.acc_test = Accuracy()
 
-        self.acc_per_class_train = nn.ModuleList([Accuracy() for _ in range(self.hparams.num_classes)])
-        self.acc_per_class_valid = nn.ModuleList([Accuracy() for _ in range(self.hparams.num_classes)])
-        self.acc_per_class_test = nn.ModuleList([Accuracy() for _ in range(self.hparams.num_classes)])
+        # Precision, Recall, F1, mAP
+        self.precision_valid = Precision(num_classes=self.hparams.num_classes, average='macro')
+        self.recall_valid = Recall(num_classes=self.hparams.num_classes, average='macro')
+        self.f1_valid = F1(num_classes=self.hparams.num_classes, average='macro')
+
+        self.precision_weighted_valid = Precision(num_classes=self.hparams.num_classes, average='weighted')
+        self.recall_weighted_valid = Recall(num_classes=self.hparams.num_classes, average='weighted')
+        self.f1_weighted_valid = F1(num_classes=self.hparams.num_classes, average='weighted')
+
+        self.mAP_valid = AveragePrecision(num_classes=self.hparams.num_classes)
+
+        # Per Class Metrics
+        self.acc_per_class_train = Accuracy(num_classes=self.hparams.num_classes, average=None)
+        self.acc_per_class_valid = Accuracy(num_classes=self.hparams.num_classes, average=None)
+
+        self.precision_per_class_valid = Precision(num_classes=self.hparams.num_classes, average=None)
+        self.f1_per_class_valid = F1(num_classes=self.hparams.num_classes, average=None)
+        self.ap_per_class_valid = AveragePrecision(num_classes=self.hparams.num_classes, average=None)
+
+        # Few-Medium-Many Shot Metrics
+        few_shot_classes, medium_shot_classes, many_shot_classes = self.get_few_medium_many_shot_partitions()
+
+        self.kshot_acc_train = KShotAccuracy(few_shot_classes, medium_shot_classes, many_shot_classes)
+
+        self.kshot_acc_valid = KShotAccuracy(few_shot_classes, medium_shot_classes, many_shot_classes)
+        self.kshot_precision_valid = KShotPrecision(few_shot_classes, medium_shot_classes, many_shot_classes)
+        self.kshot_f1_valid = KShotF1(few_shot_classes, medium_shot_classes, many_shot_classes)
+        self.kshot_map_valid = KShotmAP(few_shot_classes, medium_shot_classes, many_shot_classes)
+
+        self.few_shot_classes = few_shot_classes
+        self.medium_shot_classes = medium_shot_classes
+        self.many_shot_classes = many_shot_classes
 
         # data
         self.train_dataset = None
@@ -49,6 +84,90 @@ class Transformer(pl.LightningModule):
         else:
             raise Exception(f"Unsupported Provider {self.hparams.model_provider}")
 
+    def get_few_medium_many_shot_partitions(self):
+        """
+        Return few, medium and many shot class partitions depending on the chosen strategy in hparams.
+        :return:
+        """
+        strategy = self.hparams.few_medium_many_partition_strategy
+        if  strategy == '30-40-30':
+
+            limit_30 = int(self.hparams.num_classes * 0.3)
+            limit_70 = int(self.hparams.num_classes * 0.7)
+            all_classes = np.arange(self.hparams.num_classes)
+            few_shot_classes = all_classes[limit_70:]
+            medium_shot_classes = all_classes[limit_30:limit_70]
+            many_shot_classes = all_classes[:limit_30]
+
+            return few_shot_classes, medium_shot_classes, many_shot_classes
+        else:
+            raise Exception(f"Few-Medium-Many Partition Strategy {strategy} undefined.")
+
+    def add_run_dependent_parameters(self, config):
+        """
+        This function is used to add parameters to the config dict where these parameters dependent on the chosen
+        hyperparameters.
+        :param config:
+        :return:
+        """
+        config = self.add_per_class_frequency(config)
+        config = self.add_class_weights(config)
+        return config
+
+    def add_per_class_frequency(self, config):
+        """
+        This function calculates the per class frequency of the dataset and adds it to the config dict
+        :param config:
+        :return:
+        """
+
+        if config['dataset'] == 'cifar10':
+            train_dataset = IMBALANCECIFAR10(
+                root=config['data_root'],
+                imb_type=config['imb_type'],
+                imb_factor=config['imb_factor'],
+                rand_number=config['random_seed'],
+                train=True,
+                transform=None,
+                download=True
+            )
+        elif config['dataset'] == 'cifar100':
+            train_dataset = IMBALANCECIFAR100(
+                root=config['data_root'],
+                imb_type=config['imb_type'],
+                imb_factor=config['imb_factor'],
+                rand_number=config['random_seed'],
+                train=True,
+                transform=None,
+                download=True
+            )
+        else:
+            raise Exception(f'Dataset {config["dataset"]} undefined.')
+
+        config['per_class_frequency'] = np.array(train_dataset.per_class_frequency)
+        return config
+
+    def add_class_weights(self, config):
+        """
+        This function calculates the class weights based on a chosen pre-defined strategy and appends the weights to
+        the config dictionary
+        :param config:
+        :return:
+        """
+
+        if 'per_class_frequency' not in config:
+            raise Exception('Class Weights cannot be computed without per_class_frequency')
+
+        per_class_frequency = config['per_class_frequency']
+
+        if config['class_weights_strategy'] == 'frequency':
+
+            class_weights = np.sum(per_class_frequency) / (config['num_classes'] * per_class_frequency)
+            config['class_weights'] = class_weights
+        else:
+            raise Exception(f'Class Weights Computation Strategy {config["class_weights_strategy"]} undefined')
+        return config
+
     def get_loss_function(self) -> nn.Module:
         """
         Get loss function
@@ -58,6 +177,21 @@ class Transformer(pl.LightningModule):
             return nn.CrossEntropyLoss()
         elif self.hparams.loss_function == 'weighted_cross_entropy':
             return nn.CrossEntropyLoss(weight=Tensor(self.hparams.class_weights).to(self.device))
+        elif self.hparams.loss_function == 'focal_loss':
+            if self.hparams.class_weights is None:
+                alpha = None
+            else:
+                alpha = torch.Tensor(self.hparams.class_weights).to(self.device)
+            return focal_loss(alpha=alpha, gamma=self.hparams.focal_loss_gamma)
+        elif self.hparams.loss_function == 'class_balanced_loss':
+            return ClassBalancedLoss(
+                loss_type=self.hparams.class_balanced_loss_type,
+                beta=self.hparams.class_balanced_beta,
+                num_classes=self.hparams.num_classes,
+                per_class_frequency=self.hparams.per_class_frequency,
+                focal_loss_gamma=self.hparams.focal_loss_gamma,
+                device=self.device
+            )
         else:
             raise Exception(f"Unsupported Loss Function: {self.hparams.loss_function}")
 
@@ -88,15 +222,40 @@ class Transformer(pl.LightningModule):
         if self.hparams.optimizer == 'Adam':
             return Adam(self.parameters(), lr=self.hparams.learning_rate, weight_decay=self.hparams.weight_decay)
         elif self.hparams.optimizer == 'SGD':
-            return SGD(self.parameters(), lr=self.hparams.learning_rate, )
+            return SGD(self.parameters(), lr=self.hparams.learning_rate)
         else:
             raise Exception(f"Unsupported Optimizer type: {self.hparams.optimizer}")
+
+    def mixup_data(self, x, y):
+        """
+        Returns mixed inputs, pairs of targets, and lambda'''
+        """
+
+        alpha = self.hparams.mixup_alpha
+        if alpha > 0:
+            lam = np.random.beta(alpha, alpha)
+        else:
+            lam = 1
+
+        batch_size = x.shape[0]
+        index = torch.randperm(batch_size).to(self.device)
+
+        mixed_x = lam * x + (1 - lam) * x[index, :]
+        y_a, y_b = y, y[index]
+
+        return mixed_x, y_a, y_b, lam
 
     def training_step(self, batch, batch_idx):
 
         x, y = batch
-        logits = self(x)
-        loss = self.loss_func(logits, y)
+
+        if self.hparams.mixup and self.current_epoch < self.hparams.mixup_stop_epoch:
+            x_mixed, y_a, y_b, lam = self.mixup_data(x, y)
+            logits = self(x_mixed)
+            loss = lam * self.loss_function(logits, y_a) + (1 - lam) * self.loss_function(logits, y_b)
+        else:
+            logits = self(x)
+            loss = self.loss_func(logits, y)
 
         self.log('train/loss', loss.item(), prog_bar=True, on_step=True, on_epoch=True)
 
@@ -125,31 +284,78 @@ class Transformer(pl.LightningModule):
                 y_preds[i] = y_pred
 
                 self.acc_train(y_pred, y)
-                # calculate per class accuracy
-                for c in range(self.hparams.num_classes):
-                    indexes = (y == c)
-                    y_c = y[indexes]
-                    y_pred_c = y_pred[indexes]
-                    # if this batch does not have samples from this class then ignore
-                    if y_c.numel() == 0 or y_pred_c.numel() == 0:
-                        continue
-                    self.acc_per_class_train[c](y_pred_c, y_c)
+                if self.hparams.per_class_metrics:
+                    self.acc_per_class_train(y_pred, y)
+                if self.hparams.kshot_metrics:
+                    self.kshot_acc_train(y_pred, y)
 
             self.log('train/accuracy', self.acc_train.compute())
-            for c in range(self.hparams.num_classes):
-                if self.acc_per_class_train[c].mode:
-                    self.log(f'train/class_{self.hparams.class_names[c]}-{c}_accuracy', self.acc_per_class_train[c].compute())
 
-        y = torch.cat(ys)
-        y_pred = torch.cat(y_preds)
+            if self.hparams.per_class_metrics:
+                acc_per_class = self.acc_per_class_train.compute()
+                for c in range(self.hparams.num_classes):
+                    self.log(f'train/class_{self.hparams.class_names[c]}-{c}_accuracy', acc_per_class[c])
 
-        self.logger.experiment.log({
-            "train/confusion_matrix": wandb.plot.confusion_matrix(
-                probs=None,
-                y_true=np.array(y.cpu().tolist()),
-                preds=np.array(y_pred.cpu().tolist()),
-                class_names=self.hparams.class_names)
-        })
+            if self.hparams.kshot_metrics:
+                few_acc, medium_acc, many_acc = self.kshot_acc_train.compute()
+                self.log('train/few_shot_acc', few_acc)
+                self.log('train/medium_shot_acc', medium_acc)
+                self.log('train/many_shot_acc', many_acc)
+
+        y = torch.cat(ys).cpu().numpy()
+        y_pred = torch.cat(y_preds).cpu().numpy()
+
+        if self.hparams.per_class_metrics:
+            self.logger.experiment.log({
+                "train/confusion_matrix_per_class": wandb.plot.confusion_matrix(
+                    probs=None,
+                    y_true=y,
+                    preds=y_pred,
+                    class_names=self.hparams.class_names)
+            })
+
+            self.logger.experiment.log({
+                'train/confusion_matrix_per_class_sklearn':
+                    wandb.sklearn.plot_confusion_matrix(y, y_pred, self.hparams.class_names)
+            })
+
+        if self.hparams.kshot_metrics:
+
+            y_true = y
+            preds = y_pred
+
+            few_index = np.isin(y_true, self.few_shot_classes)
+            medium_index = np.isin(y_true, self.medium_shot_classes)
+            many_index = np.isin(y_true, self.many_shot_classes)
+
+            y_true[few_index] = 0
+            y_true[medium_index] = 1
+            y_true[many_index] = 2
+
+            few_index = np.isin(preds, self.few_shot_classes)
+            medium_index = np.isin(preds, self.medium_shot_classes)
+            many_index = np.isin(preds, self.many_shot_classes)
+
+            preds[few_index] = 0
+            preds[medium_index] = 1
+            preds[many_index] = 2
+
+            self.logger.experiment.log({
+                "train/confusion_matrix_kshot": wandb.plot.confusion_matrix(
+                    probs=None,
+                    y_true=y_true,
+                    preds=preds,
+                    class_names=['Few Shot', 'Medium Shot', 'Many Shot'])
+            })
+
+            self.logger.experiment.log({
+                'train/confusion_matrix_kshot_sklearn':
+                    wandb.sklearn.plot_confusion_matrix(y_true, preds, ['Few Shot', 'Medium Shot', 'Many Shot'])
+            })
+
+        self.acc_per_class_train.reset()
+        self.acc_train.reset()
+        self.kshot_acc_train.reset()
 
     def validation_step(self, batch, batch_idx):
 
@@ -165,48 +371,178 @@ class Transformer(pl.LightningModule):
 
         self.log('val/loss', loss.item(), prog_bar=True, on_step=True, on_epoch=True)
 
+        # log accuracy
         self.acc_valid(logits, y)
+        # log mAP
+        self.mAP_valid(logits, y)
+        # log precision and recall
+        self.precision_valid(logits, y)
+        self.recall_valid(logits, y)
+        self.precision_weighted_valid(logits, y)
+        self.recall_weighted_valid(logits, y)
+        # log F1 Score
+        self.f1_valid(logits, y)
+        self.f1_weighted_valid(logits, y)
 
-        for c in range(self.hparams.num_classes):
-            indexes = (y == c)
-            y_c = y[indexes]
-            logits_c = logits[indexes]
-            if y_c.numel() == 0 or logits_c.numel() == 0:
-                continue
-            self.acc_per_class_valid[c](logits_c, y_c)
+        if self.hparams.per_class_metrics:
+            self.acc_per_class_valid(logits, y)
+
+        if self.hparams.kshot_metrics:
+            self.kshot_acc_valid(y_pred, y)
+            self.kshot_map_valid(logits, y)
+            self.kshot_precision_valid(y_pred, y)
+            self.kshot_f1_valid(y_pred, y)
 
         results = {
             'loss': loss,
             'y': y,
-            'y_pred': y_pred
+            'y_pred': y_pred,
+            'logits': logits
         }
 
         return results
 
     def validation_epoch_end(self, val_step_outputs):
 
+        # log accuracy
         self.log('val/accuracy', self.acc_valid.compute())
-        for c in range(self.hparams.num_classes):
-            if self.acc_per_class_valid[c].mode:
-                self.log(f'val/class_{self.hparams.class_names[c]}-{c}_accuracy', self.acc_per_class_valid[c].compute())
+        self.acc_valid.reset()
+        # log map
+        self.log('val/mAP', self.mAP_valid.compute())
+        self.mAP_valid.reset()
+        # log precision, recall, F1 Score
+        self.log('val/precision', self.precision_valid.compute())
+        self.precision_valid.reset()
+        self.log('val/recall', self.recall_valid.compute())
+        self.recall_valid.reset()
+        self.log('val/F1_score', self.f1_valid.compute())
+        self.f1_valid.reset()
+        # log precision, recall, F1 Score
+        self.log('val/precision_weighted', self.precision_weighted_valid.compute())
+        self.precision_weighted_valid.reset()
+        self.log('val/recall_weighted', self.recall_weighted_valid.compute())
+        self.recall_weighted_valid.reset()
+        self.log('val/F1_score_weighted', self.f1_weighted_valid.compute())
+        self.f1_weighted_valid.reset()
+
+        # log per class accuracy
+        if self.hparams.per_class_metrics:
+            acc_per_class = self.acc_per_class_valid.compute()
+            self.acc_per_class_valid.reset()
+            for c in range(self.hparams.num_classes):
+                self.log(f'val/class_{self.hparams.class_names[c]}-{c}_accuracy', acc_per_class[c])
+
+        if self.hparams.kshot_metrics:
+
+            # log accuracy
+            few_acc, medium_acc, many_acc = self.kshot_acc_valid.compute()
+            self.kshot_acc_valid.reset()
+            self.log('val/few_shot_accuracy', few_acc)
+            self.log('val/medium_shot_accuracy', medium_acc)
+            self.log('val/many_shot_accuracy', many_acc)
+            # log precision
+            few_precision, medium_precision, many_precision = self.kshot_precision_valid.compute()
+            self.kshot_precision_valid.reset()
+            self.log('val/few_shot_precision', few_precision)
+            self.log('val/medium_shot_precision', medium_precision)
+            self.log('val/many_shot_precision', many_precision)
+            # log F1 Score
+            few_f1, medium_f1, many_f1 = self.kshot_f1_valid.compute()
+            self.kshot_f1_valid.reset()
+            self.log('val/few_shot_f1', few_f1)
+            self.log('val/medium_shot_f1', medium_f1)
+            self.log('val/many_shot_f1', many_f1)
+            # log mAP
+            few_map, medium_map, many_map = self.kshot_map_valid.compute()
+            self.kshot_map_valid.reset()
+            self.log('val/few_shot_map', few_map)
+            self.log('val/medium_shot_map', medium_map)
+            self.log('val/many_shot_map', many_map)
+
         steps = len(val_step_outputs)
 
         y = [None] * steps
         y_pred = [None] * steps
+        logits = [None] * steps
 
         for i, result in enumerate(val_step_outputs):
             y[i] = result['y']
             y_pred[i] = result['y_pred']
+            logits[i] = result['logits']
 
-        y = torch.cat(y).cpu().tolist()
-        y_pred = torch.cat(y_pred).cpu().tolist()
+        y = torch.cat(y).cpu().numpy()
+        y_pred = torch.cat(y_pred).cpu().numpy()
+        logits = torch.cat(logits).cpu().numpy()
 
-        self.logger.experiment.log({
-            "val/confusion_matrix": wandb.plot.confusion_matrix(
-                probs=None,
-                y_true=np.array(y), preds=np.array(y_pred),
-                class_names=self.hparams.class_names)
-        })
+        if self.hparams.per_class_metrics:
+            self.logger.experiment.log({
+                "val_charts/confusion_matrix_per_class": wandb.plot.confusion_matrix(
+                    probs=None,
+                    y_true=y, preds=y_pred,
+                    class_names=self.hparams.class_names)
+            })
+
+            self.logger.experiment.log({
+                'val_charts/confusion_matrix_per_class_sklearn':
+                    wandb.sklearn.plot_confusion_matrix(y, y_pred, self.hparams.class_names)
+            })
+
+            self.logger.experiment.log({
+                "val_charts/precision_recall_curve_per_class":  wandb.plot.pr_curve(
+                    y,
+                    logits,
+                    labels=self.hparams.class_names
+                )
+            })
+
+        if self.hparams.kshot_metrics:
+            y_true = y
+            preds = y_pred
+
+            few_index = np.isin(y_true, self.few_shot_classes)
+            medium_index = np.isin(y_true, self.medium_shot_classes)
+            many_index = np.isin(y_true, self.many_shot_classes)
+
+            y_true_cmp = np.zeros_like(y_true)
+
+            y_true_cmp[few_index] = 0
+            y_true_cmp[medium_index] = 1
+            y_true_cmp[many_index] = 2
+
+            few_index = np.isin(preds, self.few_shot_classes)
+            medium_index = np.isin(preds, self.medium_shot_classes)
+            many_index = np.isin(preds, self.many_shot_classes)
+
+            preds_cmp = np.zeros_like(preds)
+
+            preds_cmp[few_index] = 0
+            preds_cmp[medium_index] = 1
+            preds_cmp[many_index] = 2
+
+            logits_cmp = np.zeros((logits.shape[0], 3))
+            logits_cmp[:, 0] = np.max(logits[:, self.few_shot_classes], axis=1)
+            logits_cmp[:, 1] = np.max(logits[:, self.medium_shot_classes], axis=1)
+            logits_cmp[:, 2] = np.max(logits[:, self.many_shot_classes], axis=1)
+
+            self.logger.experiment.log({
+                "val_charts/confusion_matrix_kshot": wandb.plot.confusion_matrix(
+                    probs=None,
+                    y_true=y_true_cmp,
+                    preds=preds_cmp,
+                    class_names=['Few Shot', 'Medium Shot', 'Many Shot'])
+            })
+            self.logger.experiment.log({
+                'val_charts/confusion_matrix_kshot_sklearn':
+                    wandb.sklearn.plot_confusion_matrix(y_true_cmp, preds_cmp, ['Few Shot', 'Medium Shot', 'Many Shot'])
+            })
+
+            self.logger.experiment.log({
+                "val_charts/precision_recall_curve_kshot":  wandb.plot.pr_curve(
+                    y_true_cmp,
+                    logits_cmp,
+                    labels=['Few Shot', 'Medium Shot', 'Many Shot']
+                )
+            })
 
     def test_step(self, batch, batch_idx):
 

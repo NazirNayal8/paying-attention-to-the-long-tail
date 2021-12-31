@@ -11,7 +11,7 @@ def read_config(path):
     return config
 
 
-config = read_config('configs/cifar100_config_local.yaml')
+config = read_config('configs/classification/cifar100_config_local.yaml')
 
 if isinstance(config['class_names'], str):
     class_names = read_config(config['class_names'])

@@ -9,3 +9,8 @@ speeds
 labels
 .idea
 models/__pycache__
+logs/
+model_logs/
+wandb/
+weights/
+lightning_logs/

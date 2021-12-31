@@ -14,8 +14,8 @@ class IMBALANCECIFAR10(torchvision.datasets.CIFAR10):
         super(IMBALANCECIFAR10, self).__init__(root, train, transform, target_transform, download)
         if train:
             np.random.seed(rand_number)
-            img_num_list = self.get_img_num_per_cls(self.cls_num, imb_type, imb_factor)
-            self.gen_imbalanced_data(img_num_list)
+            self.per_class_frequency = self.get_img_num_per_cls(self.cls_num, imb_type, imb_factor)
+            self.gen_imbalanced_data(self.per_class_frequency)
         else:
             self.get_valid_test_splits(test, test_ratio)
 

@@ -12,7 +12,7 @@ def read_config(path):
     return config
 
 
-config = read_config('configs/cifar100_config_local.yaml')
+config = read_config('configs/classification/cifar100_config_local.yaml')
 
 if isinstance(config['class_names'], str):
     class_names = read_config(config['class_names'])
@@ -20,16 +20,16 @@ if isinstance(config['class_names'], str):
 
 pl.seed_everything(config['random_seed'])
 
-run_name = 'cifar100_rho_100'
+run_name = 'cifar100_rho10_mixup_alpha1_CB_CE_9999'
 
 model = Transformer(config)
-wandb_logger = WandbLogger(name=run_name, project='attention_long_tail', job_type='train', log_model=True)
+wandb_logger = WandbLogger(name=run_name, project='attention_LT', job_type='train', log_model=True)
 
 checkpoint_callback = ModelCheckpoint(
     dirpath='model_logs/',
-    monitor='val/loss',
+    monitor='val/accuracy',
     mode='max',
-    filename=run_name + '-{epoch:02d}-val_loss{val/loss:.2f}'
+    filename=run_name + '-{val/accuracy:.4f}-{epoch:02d}'
 )
 
 trainer = pl.Trainer(
@@ -44,4 +44,4 @@ trainer = pl.Trainer(
     callbacks=[checkpoint_callback]
 )
 trainer.fit(model)
-trainer.test(model)
+#trainer.test(model)
