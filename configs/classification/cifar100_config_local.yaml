@@ -3,7 +3,7 @@ model_provider: timm
 pretrained: False
 num_classes: 100
 dataset: cifar100
-loss_function: class_balanced_loss
+loss_function: cross_entropy
 optimizer: Adam
 sgd_momentum: 0
 learning_rate: 0.00001
@@ -29,3 +29,5 @@ class_weights_strategy: frequency
 mixup: True
 mixup_alpha: 1.0
 mixup_stop_epoch: 60
+randaug_num_ops: 2
+randaug_magnitude: 10

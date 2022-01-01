@@ -612,6 +612,7 @@ class Transformer(pl.LightningModule):
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
             transforms.Resize((self.hparams.img_size, self.hparams.img_size)),
+            transforms.RandAugment(num_ops=self.hparams.randaug_num_ops, magnitude=self.hparams.randaug_magnitude),
             transforms.ToTensor(),
             transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
         ])
