@@ -611,9 +611,9 @@ class Transformer(pl.LightningModule):
 
         for i, result in enumerate(outputs):
             
-            y[i] = result['y']
-            y_pred[i] = result['y_pred']
-            logits[i] = result['logits']
+            y[i] = result['y'].to(self.device)
+            y_pred[i] = result['y_pred'].to(self.device)
+            logits[i] = result['logits'].to(self.device)
 
             # global metrics
             acc_test(logits[i], y[i])
