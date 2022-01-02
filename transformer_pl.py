@@ -580,26 +580,26 @@ class Transformer(pl.LightningModule):
         acc_test = Accuracy()
 
         # Precision, Recall, F1, mAP
-        precision_test = Precision(num_classes=self.hparams.num_classes, average='macro')
-        recall_test = Recall(num_classes=self.hparams.num_classes, average='macro')
-        f1_test = F1(num_classes=self.hparams.num_classes, average='macro')
+        precision_test = Precision(num_classes=self.hparams.num_classes, average='macro').to(self.device)
+        recall_test = Recall(num_classes=self.hparams.num_classes, average='macro').to(self.device)
+        f1_test = F1(num_classes=self.hparams.num_classes, average='macro').to(self.device)
 
-        mAP_test = AveragePrecision(num_classes=self.hparams.num_classes)
+        mAP_test = AveragePrecision(num_classes=self.hparams.num_classes).to(self.device)
 
         # Per Class Metrics
-        acc_per_class_test = Accuracy(num_classes=self.hparams.num_classes, average=None)
+        acc_per_class_test = Accuracy(num_classes=self.hparams.num_classes, average=None).to(self.device)
 
-        precision_per_class_test = Precision(num_classes=self.hparams.num_classes, average=None)
-        f1_per_class_test = F1(num_classes=self.hparams.num_classes, average=None)
-        ap_per_class_test = AveragePrecision(num_classes=self.hparams.num_classes, average=None)
+        precision_per_class_test = Precision(num_classes=self.hparams.num_classes, average=None).to(self.device)
+        f1_per_class_test = F1(num_classes=self.hparams.num_classes, average=None).to(self.device)
+        ap_per_class_test = AveragePrecision(num_classes=self.hparams.num_classes, average=None).to(self.device)
 
         # Few-Medium-Many Shot Metrics
         few_shot_classes, medium_shot_classes, many_shot_classes = self.get_few_medium_many_shot_partitions()
 
-        kshot_acc_test = KShotAccuracy(few_shot_classes, medium_shot_classes, many_shot_classes)
-        kshot_precision_test = KShotPrecision(few_shot_classes, medium_shot_classes, many_shot_classes)
-        kshot_f1_test = KShotF1(few_shot_classes, medium_shot_classes, many_shot_classes)
-        kshot_map_test = KShotmAP(few_shot_classes, medium_shot_classes, many_shot_classes)
+        kshot_acc_test = KShotAccuracy(few_shot_classes, medium_shot_classes, many_shot_classes).to(self.device)
+        kshot_precision_test = KShotPrecision(few_shot_classes, medium_shot_classes, many_shot_classes).to(self.device)
+        kshot_f1_test = KShotF1(few_shot_classes, medium_shot_classes, many_shot_classes).to(self.device)
+        kshot_map_test = KShotmAP(few_shot_classes, medium_shot_classes, many_shot_classes).to(self.device)
         
 
 
