@@ -600,8 +600,6 @@ class Transformer(pl.LightningModule):
         kshot_precision_test = KShotPrecision(few_shot_classes, medium_shot_classes, many_shot_classes).to(self.device)
         kshot_f1_test = KShotF1(few_shot_classes, medium_shot_classes, many_shot_classes).to(self.device)
         kshot_map_test = KShotmAP(few_shot_classes, medium_shot_classes, many_shot_classes).to(self.device)
-        
-
 
         steps = len(outputs)
 
@@ -708,6 +706,7 @@ class Transformer(pl.LightningModule):
 
         y = torch.cat(y).cpu().numpy()
         y_pred = torch.cat(y_pred).cpu().numpy()
+        logits = torch.cat(logits).cpu().numpy()
 
         # plot confusion matrix in wandb style
         self.logger.experiment.log({
