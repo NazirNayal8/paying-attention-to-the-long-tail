@@ -680,7 +680,7 @@ class Transformer(pl.LightningModule):
             self.log(f'test/class_{self.hparams.class_names[c]}-{c}_AP', ap_per_class[c])
             plt.figure(figsize=(8,4))
             plt.grid()
-            plt.plot(np.arange(self.hparams.num_classes) , ap_per_class.cpu().numpy())
+            plt.plot(np.arange(self.hparams.num_classes) , ap_per_class)
             plt.title(rf'{self.hparams.dataset} $\rho = {int(1/self.hparams.imb_factor)}$ Per Class Average Precision')
             plt.xlabel('Classes Sorted by Frequency')
             plt.ylabel('Average Precision')
