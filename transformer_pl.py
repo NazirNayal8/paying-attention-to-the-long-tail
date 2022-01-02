@@ -613,7 +613,7 @@ class Transformer(pl.LightningModule):
             y_pred[i] = result['y_pred'].to(self.device)
             logits[i] = result['logits'].to(self.device)
 
-            print(logits.shape, y.shape)
+            print(logits[i].shape, y[i].shape)
 
             # global metrics
             acc_test(logits[i], y[i])
