@@ -613,6 +613,8 @@ class Transformer(pl.LightningModule):
             y_pred[i] = result['y_pred'].to(self.device)
             logits[i] = result['logits'].to(self.device)
 
+            print(logits.shape, y.shape)
+
             # global metrics
             acc_test(logits[i], y[i])
             precision_test(logits[i], y[i])
@@ -630,6 +632,11 @@ class Transformer(pl.LightningModule):
             kshot_f1_test(logits[i], y[i])
             kshot_map_test(logits[i], y[i])
         
+
+
+        y = torch.cat(y).cpu().numpy()
+        y_pred = torch.cat(y_pred).cpu().numpy()
+        logits = torch.cat(logits).cpu().numpy()
 
         self.log('test/accuracy', acc_test.compute())
         self.log('test/precision', precision_test.compute())
@@ -702,11 +709,6 @@ class Transformer(pl.LightningModule):
         self.log('test/few_shot_map', few_map)
         self.log('test/medium_shot_map', medium_map)
         self.log('test/many_shot_map', many_map)
-        
-
-        y = torch.cat(y).cpu().numpy()
-        y_pred = torch.cat(y_pred).cpu().numpy()
-        logits = torch.cat(logits).cpu().numpy()
 
         # plot confusion matrix in wandb style
         self.logger.experiment.log({
