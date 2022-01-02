@@ -278,7 +278,7 @@ class Transformer(pl.LightningModule):
                 x, y = result['x'], result['y']
                 batch = (x.to(self.device), y.to(self.device))
 
-                y_pred, y = self.validation_step(batch, -1)
+                y_pred, y, logits = self.validation_step(batch, -1)
 
                 ys[i] = y
                 y_preds[i] = y_pred
@@ -367,7 +367,7 @@ class Transformer(pl.LightningModule):
         y_pred = torch.argmax(logits, dim=1)
 
         if batch_idx == -1:
-            return y_pred, y
+            return y_pred, y, logits
 
         self.log('val/loss', loss.item(), prog_bar=True, on_step=True, on_epoch=True)
 
@@ -386,6 +386,9 @@ class Transformer(pl.LightningModule):
 
         if self.hparams.per_class_metrics:
             self.acc_per_class_valid(logits, y)
+            self.f1_per_class_valid(logits, y)
+            self.precision_per_class_valid(logits, y)
+            self.ap_per_class_valid(logits, y)
 
         if self.hparams.kshot_metrics:
             self.kshot_acc_valid(y_pred, y)
@@ -431,6 +434,22 @@ class Transformer(pl.LightningModule):
             self.acc_per_class_valid.reset()
             for c in range(self.hparams.num_classes):
                 self.log(f'val/class_{self.hparams.class_names[c]}-{c}_accuracy', acc_per_class[c])
+
+            precision_per_class = self.precision_per_class_valid.compute()
+            self.precision_per_class_valid.reset()
+            for c in range(self.hparams.num_classes):
+                self.log(f'val/class_{self.hparams.class_names[c]}-{c}_precision', precision_per_class[c])
+
+            
+            f1_per_class = self.f1_per_class_valid.compute()
+            self.f1_per_class_valid.reset()
+            for c in range(self.hparams.num_classes):
+                self.log(f'val/class_{self.hparams.class_names[c]}-{c}_F1_score', f1_per_class[c])
+            
+            ap_per_class = self.ap_per_class_valid.compute()
+            self.ap_per_class_valid.reset()
+            for c in range(self.hparams.num_classes):
+                self.log(f'val/class_{self.hparams.class_names[c]}-{c}_AP', ap_per_class[c])
 
         if self.hparams.kshot_metrics:
 
@@ -546,65 +565,180 @@ class Transformer(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
 
-        y_pred, y = self.validation_step(batch, -1)
-        self.acc_test(y_pred, y)
-        for c in range(self.hparams.num_classes):
-            indexes = (y == c)
-            y_c = y[indexes]
-            y_pred_c = y_pred[indexes]
-            if y_c.numel() == 0 or y_pred_c.numel() == 0:
-                continue
-            self.acc_per_class_test[c](y_pred_c, y_c)
-
+        y_pred, y, logits = self.validation_step(batch, -1)
+        
         results = {
             'y': y,
-            'y_pred': y_pred
+            'y_pred': y_pred,
+            'logits': logits
         }
         return results
 
     def test_epoch_end(self, outputs):
 
-        self.log('test/accuracy', self.acc_test.compute())
-        per_class_accuracies = []
-        for c in range(self.hparams.num_classes):
-            if self.acc_per_class_test[c].mode:
-                acc = self.acc_per_class_test[c].compute()
-                per_class_accuracies.extend([acc.item()])
-                self.log(f'test/class_{self.hparams.class_names[c]}-{c}_accuracy', acc)
+         # Accuracy
+        acc_test = Accuracy()
+
+        # Precision, Recall, F1, mAP
+        precision_test = Precision(num_classes=self.hparams.num_classes, average='macro')
+        recall_test = Recall(num_classes=self.hparams.num_classes, average='macro')
+        f1_test = F1(num_classes=self.hparams.num_classes, average='macro')
+
+        mAP_test = AveragePrecision(num_classes=self.hparams.num_classes)
+
+        # Per Class Metrics
+        acc_per_class_test = Accuracy(num_classes=self.hparams.num_classes, average=None)
+
+        precision_per_class_test = Precision(num_classes=self.hparams.num_classes, average=None)
+        f1_per_class_test = F1(num_classes=self.hparams.num_classes, average=None)
+        ap_per_class_test = AveragePrecision(num_classes=self.hparams.num_classes, average=None)
+
+        # Few-Medium-Many Shot Metrics
+        few_shot_classes, medium_shot_classes, many_shot_classes = self.get_few_medium_many_shot_partitions()
+
+        kshot_acc_test = KShotAccuracy(few_shot_classes, medium_shot_classes, many_shot_classes)
+        kshot_precision_test = KShotPrecision(few_shot_classes, medium_shot_classes, many_shot_classes)
+        kshot_f1_test = KShotF1(few_shot_classes, medium_shot_classes, many_shot_classes)
+        kshot_map_test = KShotmAP(few_shot_classes, medium_shot_classes, many_shot_classes)
+        
+
+
         steps = len(outputs)
-
-        plt.title('Per Class Accuracy')
-        plt.xlabel('Classes Sorted by Frequency')
-        plt.ylabel('Top-1 Accuracy')
-        plt.plot(np.arange(self.hparams.num_classes), per_class_accuracies)
-        plt.grid()
-
-        self.logger.experiment.log({
-            'test/per_class_accuracies': plt
-        })
 
         y = [None] * steps
         y_pred = [None] * steps
+        logits = [None] * steps
 
         for i, result in enumerate(outputs):
+            
             y[i] = result['y']
             y_pred[i] = result['y_pred']
+            logits[i] = result['logits']
 
-        y = torch.cat(y).cpu().tolist()
-        y_pred = torch.cat(y_pred).cpu().tolist()
+            # global metrics
+            acc_test(logits[i], y[i])
+            precision_test(logits[i], y[i])
+            recall_test(logits[i], y[i])
+            f1_test(logits[i], y[i])
+            mAP_test(logits[i], y[i])
+            # per class metrics
+            acc_per_class_test(logits[i], y[i])
+            precision_per_class_test(logits[i], y[i])
+            f1_per_class_test(logits[i], y[i])
+            ap_per_class_test(logits[i], y[i])
+            # k-shot metrics
+            kshot_acc_test(y_pred[i], y[i])
+            kshot_precision_test(y_pred[i], y[i])
+            kshot_f1_test(logits[i], y[i])
+            kshot_map_test(logits[i], y[i])
+        
+
+        self.log('test/accuracy', acc_test.compute())
+        self.log('test/precision', precision_test.compute())
+        self.log('test/recall', recall_test.compute())
+        self.log('test/f1', f1_test.compute())
+        self.log('test/mAP', mAP_test.compute())
+
+        acc_per_class = acc_per_class_test.compute()
+        for c in range(self.hparams.num_classes):
+            self.log(f'test/class_{self.hparams.class_names[c]}-{c}_accuracy', acc_per_class[c])
+
+        precision_per_class = precision_per_class_test.compute()
+        for c in range(self.hparams.num_classes):
+            self.log(f'test/class_{self.hparams.class_names[c]}-{c}_precision', precision_per_class[c])
+
+        
+        f1_per_class = f1_per_class_test.compute()
+        for c in range(self.hparams.num_classes):
+            self.log(f'test/class_{self.hparams.class_names[c]}-{c}_F1_score', f1_per_class[c])
+        
+        ap_per_class = ap_per_class_test.compute()
+        for c in range(self.hparams.num_classes):
+            self.log(f'test/class_{self.hparams.class_names[c]}-{c}_AP', ap_per_class[c])
+
+
+        # log accuracy
+        few_acc, medium_acc, many_acc = kshot_acc_test.compute()
+        self.log('test/few_shot_accuracy', few_acc)
+        self.log('test/medium_shot_accuracy', medium_acc)
+        self.log('test/many_shot_accuracy', many_acc)
+        # log precision
+        few_precision, medium_precision, many_precision = kshot_precision_test.compute()
+        self.log('test/few_shot_precision', few_precision)
+        self.log('test/medium_shot_precision', medium_precision)
+        self.log('test/many_shot_precision', many_precision)
+        # log F1 Score
+        few_f1, medium_f1, many_f1 = kshot_f1_test.compute()
+        self.log('test/few_shot_f1', few_f1)
+        self.log('test/medium_shot_f1', medium_f1)
+        self.log('test/many_shot_f1', many_f1)
+        # log mAP
+        few_map, medium_map, many_map = kshot_map_test.compute()
+        self.log('test/few_shot_map', few_map)
+        self.log('test/medium_shot_map', medium_map)
+        self.log('test/many_shot_map', many_map)
+        
+
+        y = torch.cat(y).cpu().numpy()
+        y_pred = torch.cat(y_pred).cpu().numpy()
 
         # plot confusion matrix in wandb style
         self.logger.experiment.log({
             "test/confusion_matrix": wandb.plot.confusion_matrix(
                 probs=None,
-                y_true=np.array(y), preds=np.array(y_pred),
+                y_true=y, preds=y,
                 class_names=self.hparams.class_names)
         })
 
-        # plot confusion matrix in sklearn style
+        y_true = y
+        preds = y_pred
+
+        few_index = np.isin(y_true, self.few_shot_classes)
+        medium_index = np.isin(y_true, self.medium_shot_classes)
+        many_index = np.isin(y_true, self.many_shot_classes)
+
+        y_true_cmp = np.zeros_like(y_true)
+
+        y_true_cmp[few_index] = 0
+        y_true_cmp[medium_index] = 1
+        y_true_cmp[many_index] = 2
+
+        few_index = np.isin(preds, self.few_shot_classes)
+        medium_index = np.isin(preds, self.medium_shot_classes)
+        many_index = np.isin(preds, self.many_shot_classes)
+
+        preds_cmp = np.zeros_like(preds)
+
+        preds_cmp[few_index] = 0
+        preds_cmp[medium_index] = 1
+        preds_cmp[many_index] = 2
+
+        logits_cmp = np.zeros((logits.shape[0], 3))
+        logits_cmp[:, 0] = np.max(logits[:, self.few_shot_classes], axis=1)
+        logits_cmp[:, 1] = np.max(logits[:, self.medium_shot_classes], axis=1)
+        logits_cmp[:, 2] = np.max(logits[:, self.many_shot_classes], axis=1)
+
         self.logger.experiment.log({
-            'test/confusion_matrix_sklearn': wandb.sklearn.plot_confusion_matrix(y, y_pred, self.hparams.class_names)
+            "test_charts/confusion_matrix_kshot": wandb.plot.confusion_matrix(
+                probs=None,
+                y_true=y_true_cmp,
+                preds=preds_cmp,
+                class_names=['Few Shot', 'Medium Shot', 'Many Shot'])
         })
+        self.logger.experiment.log({
+            'test_charts/confusion_matrix_kshot_sklearn':
+                wandb.sklearn.plot_confusion_matrix(y_true_cmp, preds_cmp, ['Few Shot', 'Medium Shot', 'Many Shot'])
+        })
+
+        self.logger.experiment.log({
+            "test_charts/precision_recall_curve_kshot":  wandb.plot.pr_curve(
+                y_true_cmp,
+                logits_cmp,
+                labels=['Few Shot', 'Medium Shot', 'Many Shot']
+            )
+        })
+
+
 
     def setup(self, stage):
 
