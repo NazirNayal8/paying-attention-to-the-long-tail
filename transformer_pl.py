@@ -577,7 +577,7 @@ class Transformer(pl.LightningModule):
     def test_epoch_end(self, outputs):
 
          # Accuracy
-        acc_test = Accuracy()
+        acc_test = Accuracy().to(self.device)
 
         # Precision, Recall, F1, mAP
         precision_test = Precision(num_classes=self.hparams.num_classes, average='macro').to(self.device)
