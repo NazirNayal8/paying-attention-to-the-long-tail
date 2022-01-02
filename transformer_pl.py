@@ -713,7 +713,7 @@ class Transformer(pl.LightningModule):
         self.logger.experiment.log({
             "test/confusion_matrix": wandb.plot.confusion_matrix(
                 probs=None,
-                y_true=y, preds=y,
+                y_true=y, preds=y_pred,
                 class_names=self.hparams.class_names)
         })
 
@@ -751,12 +751,7 @@ class Transformer(pl.LightningModule):
                 y_true=y_true_cmp,
                 preds=preds_cmp,
                 class_names=['Few Shot', 'Medium Shot', 'Many Shot'])
-        })
-        self.logger.experiment.log({
-            'test_charts/confusion_matrix_kshot_sklearn':
-                wandb.sklearn.plot_confusion_matrix(y_true_cmp, preds_cmp, ['Few Shot', 'Medium Shot', 'Many Shot'])
-        })
-
+                
         self.logger.experiment.log({
             "test_charts/precision_recall_curve_kshot":  wandb.plot.pr_curve(
                 y_true_cmp,
