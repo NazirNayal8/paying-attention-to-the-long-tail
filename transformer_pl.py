@@ -613,8 +613,6 @@ class Transformer(pl.LightningModule):
             y_pred[i] = result['y_pred'].to(self.device)
             logits[i] = result['logits'].to(self.device)
 
-            print(logits[i].shape, y[i].shape)
-
             # global metrics
             acc_test(logits[i], y[i])
             precision_test(logits[i], y[i])
@@ -629,7 +627,7 @@ class Transformer(pl.LightningModule):
             # k-shot metrics
             kshot_acc_test(y_pred[i], y[i])
             kshot_precision_test(y_pred[i], y[i])
-            kshot_f1_test(logits[i], y[i])
+            kshot_f1_test(y_pred[i], y[i])
             kshot_map_test(logits[i], y[i])
         
 
