@@ -751,7 +751,8 @@ class Transformer(pl.LightningModule):
                 y_true=y_true_cmp,
                 preds=preds_cmp,
                 class_names=['Few Shot', 'Medium Shot', 'Many Shot'])
-                
+        })
+
         self.logger.experiment.log({
             "test_charts/precision_recall_curve_kshot":  wandb.plot.pr_curve(
                 y_true_cmp,
