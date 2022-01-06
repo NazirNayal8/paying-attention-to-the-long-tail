@@ -20,12 +20,12 @@ if isinstance(config['class_names'], str):
 
 pl.seed_everything(config['random_seed'])
 
-run_name = 'cifar10_rho10_mixup_alpha1_randaug_2-10_CB_CE_9999'
+run_name = 'cifar10_rho10_mixup_alpha1_randaug_2-10_FL_g2'
 
 model = Transformer(config)
 wandb_logger = WandbLogger(name=run_name, project='attention_LT', job_type='train', log_model=True)
 checkpoint_callback = ModelCheckpoint(
-    dirpath='model_logs/',
+    dirpath='model_logs/cifar10',
     monitor='val/accuracy',
     mode='max',
     filename=run_name + '-{val/accuracy:.4f}-{epoch:02d}'

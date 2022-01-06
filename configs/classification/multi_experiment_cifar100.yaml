@@ -1,0 +1,118 @@
+
+# no augmentation experiments
+- swin_CE:
+    loss_function: cross_entropy
+    mixup: False
+    randaug_num_ops: 0
+    transformer_model: swin_base_patch4_window7_224
+
+- swin_WCE:
+    loss_function: weighted_cross_entropy
+    mixup: False
+    randaug_num_ops: 0
+    transformer_model: swin_base_patch4_window7_224
+
+- swin_FL_g2:
+    loss_function: focal_loss
+    focal_loss_gamma: 2.0
+    mixup: False
+    randaug_num_ops: 0
+    transformer_model: swin_base_patch4_window7_224
+
+- swin_CB_CE_9999:
+    loss_function: class_balanced_loss
+    class_balanced_loss_type: cross_entropy
+    class_balanced_beta: 0.9999
+    mixup: False
+    randaug_num_ops: 0
+    transformer_model: swin_base_patch4_window7_224
+
+- swin_CB_FL_g2_9999:
+    loss_function: class_balanced_loss
+    class_balanced_loss_type: focal_loss
+    class_balanced_beta: 0.9999
+    focal_loss_gamma: 2.0
+    mixup: False
+    randaug_num_ops: 0
+    transformer_model: swin_base_patch4_window7_224
+
+# Mixup only experiments
+
+- swin_mixup_alpha1_CE:
+    loss_function: cross_entropy
+    randaug_num_ops: 0
+    mixup: True
+    transformer_model: swin_base_patch4_window7_224
+
+- swin_mixup_alpha1_FL_g2:
+    loss_function: focal_loss
+    focal_loss_gamma: 2.0
+    randaug_num_ops: 0
+    mixup: True
+    transformer_model: swin_base_patch4_window7_224
+
+- swin_mixup_alpha1_WCE:
+    loss_function: weighted_cross_entropy
+    randaug_num_ops: 0
+    mixup: True
+    transformer_model: swin_base_patch4_window7_224
+
+- swin_mixup_alpha1_CB_CE_9999:
+    loss_function: class_balanced_loss
+    class_balanced_loss_type: cross_entropy
+    class_balanced_beta: 0.9999
+    randaug_num_ops: 0
+    mixup: True
+    transformer_model: swin_base_patch4_window7_224
+
+- swin_mixup_alpha1_CB_FL_g2_9999:
+    loss_function: class_balanced_loss
+    class_balanced_loss_type: focal_loss
+    class_balanced_beta: 0.9999
+    focal_loss_gamma: 2.0
+    randaug_num_ops: 0
+    mixup: True
+    transformer_model: swin_base_patch4_window7_224
+
+# Mixup + Rand Augment Experiments
+
+- swin_mixup_alpha1_randaug_2-10_CE:
+      loss_function: cross_entropy
+      randaug_num_ops: 2
+      randaug_magnitude: 10
+      mixup: True
+      transformer_model: swin_base_patch4_window7_224
+
+- swin_mixup_alpha1_randaug_2-10_FL_g2:
+      loss_function: focal_loss
+      focal_loss_gamma: 2.0
+      randaug_num_ops: 2
+      randaug_magnitude: 10
+      mixup: True
+      transformer_model: swin_base_patch4_window7_224
+
+- swin_mixup_alpha1_randaug_2-10_WCE:
+      loss_function: weighted_cross_entropy
+      randaug_num_ops: 2
+      randaug_magnitude: 10
+      mixup: True
+      transformer_model: swin_base_patch4_window7_224
+
+- swin_mixup_alpha1_randaug_2-10_CB_CE_9999:
+      loss_function: class_balanced_loss
+      class_balanced_loss_type: cross_entropy
+      class_balanced_beta: 0.9999
+      randaug_num_ops: 2
+      randaug_magnitude: 10
+      mixup: True
+      transformer_model: swin_base_patch4_window7_224
+
+- swin_mixup_alpha1_randaug_2-10_CB_FL_g2_9999:
+      loss_function: class_balanced_loss
+      class_balanced_loss_type: focal_loss
+      class_balanced_beta: 0.9999
+      focal_loss_gamma: 2.0
+      randaug_num_ops: 2
+      randaug_magnitude: 10
+      mixup: True
+      transformer_model: swin_base_patch4_window7_224

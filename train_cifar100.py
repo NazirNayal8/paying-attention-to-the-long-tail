@@ -20,7 +20,7 @@ if isinstance(config['class_names'], str):
 
 pl.seed_everything(config['random_seed'])
 
-run_name = 'cifar100_rho10_mixup_alpha1_randaug_2-10_CE'
+run_name = 'cifar100_rho10_mixup_alpha1_randaug_4-5_CE'
 
 model = Transformer(config)
 wandb_logger = WandbLogger(name=run_name, project='attention_LT', job_type='train', log_model=True)

@@ -29,5 +29,5 @@ class_weights_strategy: frequency
 mixup: True
 mixup_alpha: 1.0
 mixup_stop_epoch: 60
-randaug_num_ops: 2
-randaug_magnitude: 10
+randaug_num_ops: 4
+randaug_magnitude: 5
