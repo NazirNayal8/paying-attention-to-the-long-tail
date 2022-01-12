@@ -18,6 +18,8 @@ def read_config(path):
 
 def run_experiment(run_name, config):
 
+    pl.seed_everything(config['random_seed'])
+
     if isinstance(config['class_names'], str):
         class_names = read_config(config['class_names'])
         config['class_names'] = list(class_names.values())
