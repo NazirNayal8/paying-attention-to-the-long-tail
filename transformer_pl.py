@@ -9,6 +9,7 @@ from torch import Tensor
 from torchmetrics import Accuracy, Precision, Recall, F1, AveragePrecision
 from torch.optim import Adam, SGD
 from data.cifar_imbalanced import IMBALANCECIFAR10, IMBALANCECIFAR100
+from data.imagenet_lt import ImageNetLTDataset
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from metrics.classification import KShotAccuracy, KShotPrecision, KShotF1, KShotmAP
@@ -94,7 +95,13 @@ class Transformer(pl.LightningModule):
 
             limit_30 = int(self.hparams.num_classes * 0.3)
             limit_70 = int(self.hparams.num_classes * 0.7)
-            all_classes = np.arange(self.hparams.num_classes)
+            
+            if self.hparams.dataset == 'imagenet':
+                train_dataset = ImageNetLTDataset(mode='train')
+                all_classes = train_dataset.ordered_classes
+            else:
+                all_classes = np.arange(self.hparams.num_classes)
+            
             few_shot_classes = all_classes[limit_70:]
             medium_shot_classes = all_classes[limit_30:limit_70]
             many_shot_classes = all_classes[:limit_30]
@@ -141,6 +148,8 @@ class Transformer(pl.LightningModule):
                 transform=None,
                 download=True
             )
+        elif config['dataset'] == 'imagenet':
+            train_dataset = ImageNetLTDataset(mode='train')
         else:
             raise Exception(f'Dataset {config["dataset"]} undefined.')
 
@@ -778,6 +787,22 @@ class Transformer(pl.LightningModule):
             transforms.Resize((self.hparams.img_size, self.hparams.img_size)),
             transforms.ToTensor(),
             transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            transforms.ToTensor(),
+        ])
+        
+        imagenet_transform_train = transforms.Compose([
+            transforms.Lambda(lambda x: x.convert('RGB')),
+            transforms.Resize((self.hparams.img_size, self.hparams.img_size)),
+            transforms.RandAugment(num_ops=self.hparams.randaug_num_ops, magnitude=self.hparams.randaug_magnitude),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+        
+        imagenet_transform_valid = transforms.Compose([
+            transforms.Lambda(lambda x: x.convert('RGB')),
+            transforms.Resize((self.hparams.img_size, self.hparams.img_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
 
         if self.hparams.dataset == 'cifar10':
@@ -844,6 +869,13 @@ class Transformer(pl.LightningModule):
                 test=True,
                 test_ratio=self.hparams.test_ratio
             )
+        
+        elif self.hparams.dataset == 'imagenet':
+            
+            self.train_dataset = ImageNetLTDataset(mode='train', transforms=imagenet_transform_train)
+            self.valid_dataset = ImageNetLTDataset(mode='valid', transforms=imagenet_transform_valid)
+            self.test_dataset = ImageNetLTDataset(mode='valid', transforms=imagenet_transform_valid)
+            
         else:
             raise Exception(f"Unsupported Dataset {self.hparams.dataset}")
 
